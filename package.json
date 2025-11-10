@@ -1,0 +1,36 @@
+{
+  "name": "kms-ethereum-signing",
+  "version": "1.0.0",
+  "description": "Native Ethereum transaction signing using AWS KMS with secp256k1 support",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "setup": "ts-node src/cli/setup.ts",
+    "sign": "ts-node src/cli/sign.ts",
+    "dev": "ts-node",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "aws",
+    "kms",
+    "ethereum",
+    "blockchain",
+    "secp256k1",
+    "signing",
+    "cryptocurrency"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-kms": "^3.490.0",
+    "ethers": "^6.9.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
+

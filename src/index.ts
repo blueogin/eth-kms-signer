@@ -1,0 +1,8 @@
+/**
+ * KMS Ethereum Signing - Main Export
+ */
+
+export * from './core/setup';
+export * from './core/signing';
+export * from './core/kms-client';
+
