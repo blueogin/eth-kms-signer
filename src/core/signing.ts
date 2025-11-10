@@ -8,25 +8,7 @@
 import { SignCommand, GetPublicKeyCommand } from '@aws-sdk/client-kms';
 import { ethers } from 'ethers';
 import { createKMSClient } from './kms-client';
-
-// Common RPC endpoints for different chains (same as submit.ts)
-const CHAIN_RPC_URLS: Record<number, string> = {
-  1: 'https://eth.llamarpc.com',
-  137: 'https://polygon-rpc.com',
-  56: 'https://bsc-dataseed.binance.org/',
-  43114: 'https://api.avax.network/ext/bc/C/rpc',
-  250: 'https://rpc.ftm.tools/',
-  42161: 'https://arb1.arbitrum.io/rpc',
-  10: 'https://mainnet.optimism.io',
-  8453: 'https://mainnet.base.org',
-  5: 'https://goerli.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161',
-  11155111: 'https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161',
-  80001: 'https://rpc-mumbai.maticvigil.com',
-  97: 'https://data-seed-prebsc-1-s1.binance.org:8545',
-  43113: 'https://api.avax-test.network/ext/bc/C/rpc',
-  421611: 'https://rinkeby.arbitrum.io/rpc',
-  84532: 'https://sepolia.base.org',
-};
+import { CHAIN_RPC_URLS } from './constants';
 
 function getDefaultRpcUrl(chainId?: number): string | undefined {
   return chainId ? CHAIN_RPC_URLS[chainId] : undefined;
@@ -153,8 +135,6 @@ export async function signTransaction(
   region?: string
 ): Promise<string> {
   const kmsClient = createKMSClient(region);
-  
-  const fromAddress = await getEthereumAddress(keyId, region);
   
   // Build transaction object with proper types
   const tx: any = {

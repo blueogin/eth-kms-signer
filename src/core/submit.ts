@@ -3,28 +3,7 @@
  */
 
 import { ethers } from 'ethers';
-
-// Common RPC endpoints for different chains
-const CHAIN_RPC_URLS: Record<number, string> = {
-  // Mainnets
-  1: 'https://eth.llamarpc.com', // Ethereum Mainnet
-  137: 'https://polygon-rpc.com', // Polygon
-  56: 'https://bsc-dataseed.binance.org/', // BSC
-  43114: 'https://api.avax.network/ext/bc/C/rpc', // Avalanche
-  250: 'https://rpc.ftm.tools/', // Fantom
-  42161: 'https://arb1.arbitrum.io/rpc', // Arbitrum One
-  10: 'https://mainnet.optimism.io', // Optimism
-  8453: 'https://mainnet.base.org', // Base
-  
-  // Testnets
-  5: 'https://goerli.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161', // Goerli
-  11155111: 'https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161', // Sepolia
-  80001: 'https://rpc-mumbai.maticvigil.com', // Mumbai (Polygon testnet)
-  97: 'https://data-seed-prebsc-1-s1.binance.org:8545', // BSC Testnet
-  43113: 'https://api.avax-test.network/ext/bc/C/rpc', // Avalanche Fuji
-  421611: 'https://rinkeby.arbitrum.io/rpc', // Arbitrum Rinkeby
-  84532: 'https://sepolia.base.org', // Base Sepolia
-};
+import { CHAIN_RPC_URLS, EXPLORER_URLS } from './constants';
 
 export interface SubmitOptions {
   signedTransaction: string;
@@ -118,24 +97,7 @@ export async function submitTransaction(
 function getExplorerUrl(chainId?: number, txHash?: string): string {
   if (!chainId || !txHash) return 'N/A';
   
-  const explorers: Record<number, string> = {
-    1: `https://etherscan.io/tx/${txHash}`,
-    5: `https://goerli.etherscan.io/tx/${txHash}`,
-    11155111: `https://sepolia.etherscan.io/tx/${txHash}`,
-    137: `https://polygonscan.com/tx/${txHash}`,
-    80001: `https://mumbai.polygonscan.com/tx/${txHash}`,
-    56: `https://bscscan.com/tx/${txHash}`,
-    97: `https://testnet.bscscan.com/tx/${txHash}`,
-    43114: `https://snowtrace.io/tx/${txHash}`,
-    43113: `https://testnet.snowtrace.io/tx/${txHash}`,
-    250: `https://ftmscan.com/tx/${txHash}`,
-    42161: `https://arbiscan.io/tx/${txHash}`,
-    421611: `https://testnet.arbiscan.io/tx/${txHash}`,
-    10: `https://optimistic.etherscan.io/tx/${txHash}`,
-    8453: `https://basescan.org/tx/${txHash}`,
-    84532: `https://sepolia.basescan.org/tx/${txHash}`,
-  };
-  
-  return explorers[chainId] || `Chain ID ${chainId} (no explorer configured)`;
+  const explorerBase = EXPLORER_URLS[chainId];
+  return explorerBase ? `${explorerBase}${txHash}` : `Chain ID ${chainId} (no explorer configured)`;
 }
 
