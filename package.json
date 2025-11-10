@@ -8,6 +8,7 @@
     "build": "tsc",
     "setup": "ts-node src/cli/setup.ts",
     "sign": "ts-node src/cli/sign.ts",
+    "submit": "ts-node src/cli/submit.ts",
     "dev": "ts-node",
     "clean": "rm -rf dist"
   },

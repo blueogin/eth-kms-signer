@@ -4,7 +4,7 @@
  * CLI: Sign Ethereum transactions with AWS KMS
  */
 
-import { signTransaction, signMessage, getEthereumAddress } from '../core/signing';
+import { signTransaction, signMessage, getEthereumAddress, getPublicKey } from '../core/signing';
 
 async function main() {
   const keyId = process.env.KMS_KEY_ID || process.argv[2];
@@ -14,7 +14,7 @@ async function main() {
   if (!keyId) {
     console.error('Error: KMS Key ID is required');
     console.error('Usage: npm run sign <KEY_ID> [command]');
-    console.error('Commands: transaction, message, address');
+    console.error('Commands: transaction, message, address, publickey');
     console.error('Or set KMS_KEY_ID in .env file');
     process.exit(1);
   }
@@ -27,6 +27,13 @@ async function main() {
     if (command === 'address') {
       const address = await getEthereumAddress(keyId, region);
       console.log(`Ethereum Address: ${address}`);
+    } else if (command === 'publickey' || command === 'public-key' || command === 'pubkey') {
+      const publicKey = await getPublicKey(keyId, region);
+      console.log(`Public Key (uncompressed): ${publicKey}`);
+      console.log(`\nPublic Key Details:`);
+      console.log(`  Format: Uncompressed (0x04 prefix)`);
+      console.log(`  Length: ${publicKey.length - 2} hex characters (${(publicKey.length - 2) / 2} bytes)`);
+      console.log(`  Curve: secp256k1 (ECC_SECG_P256K1)`);
     } else if (command === 'message') {
       const message = process.argv[4] || 'Hello, Ethereum!';
       const signature = await signMessage(keyId, message, region);
@@ -34,9 +41,10 @@ async function main() {
       console.log(`Signature: ${signature}`);
     } else {
       const transaction = {
-        to: process.argv[4] || '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-        value: process.argv[5] || '0.001',
-        chainId: parseInt(process.argv[6] || '1'),
+        to: process.argv[4] || '0x6608BED41902ca642bef6840Ae3Fb94ca76083a8',
+        value: process.argv[5] || '0.00001',
+        chainId: parseInt(process.argv[6] || '84532'),
+        rpcUrl: process.env.RPC_URL, // Use RPC URL from env for gas estimation
       };
       
       const address = await getEthereumAddress(keyId, region);
@@ -45,13 +53,20 @@ async function main() {
       console.log(`  To: ${transaction.to}`);
       console.log(`  Value: ${transaction.value} ETH`);
       console.log(`  Chain ID: ${transaction.chainId}`);
+      if (transaction.rpcUrl) {
+        console.log(`  RPC URL: ${transaction.rpcUrl}`);
+      }
+      console.log('\n⏳ Estimating gas and fetching fee data...');
       
       const signedTx = await signTransaction(keyId, transaction, region);
       console.log(`\n✓ Transaction signed successfully`);
       console.log(`Signed Transaction: ${signedTx}`);
     }
   } catch (error: any) {
-    console.error('\nError:', error.message);
+    console.error('\n❌ Error:', error.message || error);
+    if (error.stack && process.env.DEBUG) {
+      console.error('\nStack trace:', error.stack);
+    }
     process.exit(1);
   }
 }

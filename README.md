@@ -48,18 +48,21 @@ KMS_Integration/
 ### As a Library
 
 ```typescript
-import { createKMSKey, signTransaction, getEthereumAddress } from './src/index';
+import { createKMSKey, signTransaction, getEthereumAddress, getPublicKey } from './src/index';
 
 // Create KMS key
 const { keyId } = await createKMSKey('my-ethereum-key');
+
+// Get public key
+const publicKey = await getPublicKey(keyId);
 
 // Get Ethereum address
 const address = await getEthereumAddress(keyId);
 
 // Sign transaction
 const signedTx = await signTransaction(keyId, {
-  to: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb',
-  value: '0.001',
+  to: '0x6608BED41902ca642bef6840Ae3Fb94ca76083a8',
+  value: '0.00001',
   chainId: 1
 });
 ```
@@ -78,6 +81,12 @@ npm run sign <KEY_ID> message "Hello, Ethereum!"
 
 # Get Ethereum address from KMS key
 npm run sign <KEY_ID> address
+
+# Get public key from KMS key
+npm run sign <KEY_ID> publickey
+
+# Submit signed transaction to blockchain
+npm run submit <SIGNED_TX> [RPC_URL] [CHAIN_ID] [--wait]
 ```
 
 **Examples:**
@@ -93,6 +102,19 @@ npm run sign alias/my-ethereum-key message "Hello, Ethereum!"
 
 # Get address
 npm run sign alias/my-ethereum-key address
+
+# Get public key
+npm run sign alias/my-ethereum-key publickey
+
+# Sign and submit a transaction (two-step process)
+# Step 1: Sign the transaction
+npm run sign alias/my-ethereum-key transaction 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1
+
+# Step 2: Submit the signed transaction
+npm run submit 0x02f869... https://eth.llamarpc.com 1 --wait
+
+# Or use chain ID to auto-select RPC (Base Sepolia example)
+npm run submit 0x02f869... 84532 --wait
 ```
 
 ## Environment Variables
@@ -103,6 +125,9 @@ Create a `.env` file in the project root:
 AWS_REGION=us-east-1
 AWS_ACCOUNT_ID=your_account_id
 KMS_KEY_ID=alias/ethereum-signing-key
+
+# Optional: Default RPC URL for transaction submission
+RPC_URL=https://eth.llamarpc.com
 ```
 
 **Getting your AWS Account ID:**

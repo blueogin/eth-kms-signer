@@ -19,7 +19,11 @@ async function main() {
     
     console.log('✓ KMS key created:', result.keyId);
     console.log('  ARN:', result.keyArn);
-    console.log('  Alias:', result.aliasName);
+    if (result.aliasName.startsWith('alias/')) {
+      console.log('  Alias:', result.aliasName);
+    } else {
+      console.log('  Note: No alias created (using key ID directly)');
+    }
     console.log('\n✅ Native Ethereum Support Enabled!');
     console.log('   KMS key uses ECC_SECG_P256K1 (secp256k1) - Ethereum\'s curve');
     console.log('   You can now sign Ethereum transactions directly in KMS!');

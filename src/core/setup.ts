@@ -44,16 +44,26 @@ export async function createKMSKey(
     const keyId = createKeyResponse.KeyMetadata.KeyId;
     const keyArn = createKeyResponse.KeyMetadata.Arn;
 
-    // Create alias
+    // Create alias (optional - skip if no permission)
+    let createdAlias: string | undefined;
     try {
       const aliasCommand = new CreateAliasCommand({
         AliasName: `alias/${aliasName}`,
         TargetKeyId: keyId,
       });
       await kmsClient.send(aliasCommand);
+      createdAlias = `alias/${aliasName}`;
     } catch (error: any) {
-      if (error.name !== 'AlreadyExistsException') {
-        throw error;
+      // Skip alias creation if no permission or already exists
+      if (error.name === 'AlreadyExistsException') {
+        createdAlias = `alias/${aliasName}`;
+      } else if (error.name === 'AccessDeniedException' || error.message?.includes('not authorized')) {
+        console.warn(`Warning: Could not create alias (no permission). You can use the key ID directly: ${keyId}`);
+        createdAlias = undefined;
+      } else {
+        // For other errors, still warn but don't fail
+        console.warn(`Warning: Could not create alias: ${error.message}. You can use the key ID directly: ${keyId}`);
+        createdAlias = undefined;
       }
     }
 
@@ -101,7 +111,7 @@ export async function createKMSKey(
     return {
       keyId,
       keyArn,
-      aliasName: `alias/${aliasName}`,
+      aliasName: createdAlias || keyId, // Return alias if created, otherwise return keyId
     };
   } catch (error: any) {
     throw new Error(`Failed to create KMS key: ${error.message}`);
