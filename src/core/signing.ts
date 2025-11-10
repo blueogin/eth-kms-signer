@@ -153,12 +153,20 @@ export async function signTransaction(
   }
   
   // If gas values are not provided, estimate them from network
-  if (!transaction.gasLimit || !transaction.gasPrice) {
+  // Also fetch nonce if not provided and we have RPC access
+  if (!transaction.gasLimit || !transaction.gasPrice || transaction.nonce === undefined) {
     if (transaction.rpcUrl || transaction.chainId) {
       try {
         const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
         if (rpcUrl) {
           const provider = new ethers.JsonRpcProvider(rpcUrl);
+          
+          // Get sender address for nonce lookup
+          if (transaction.nonce === undefined) {
+            const senderAddress = await getEthereumAddress(keyId, region);
+            const nonce = await provider.getTransactionCount(senderAddress, 'pending');
+            tx.nonce = nonce;
+          }
           
           // Estimate gas limit
           if (!transaction.gasLimit) {
@@ -201,6 +209,10 @@ export async function signTransaction(
         if (!transaction.gasPrice) {
           tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
         }
+        // If nonce wasn't set and we couldn't fetch it, default to 0
+        if (transaction.nonce === undefined && tx.nonce === undefined) {
+          tx.nonce = 0;
+        }
       }
     } else {
       // No RPC URL or chain ID, use defaults
@@ -210,6 +222,10 @@ export async function signTransaction(
       if (!transaction.gasPrice) {
         tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
       }
+      // If nonce wasn't provided and we can't fetch it, default to 0
+      if (transaction.nonce === undefined) {
+        tx.nonce = 0;
+      }
     }
   } else {
     // Use provided values
@@ -218,6 +234,24 @@ export async function signTransaction(
     }
     if (transaction.gasPrice) {
       tx.gasPrice = BigInt(transaction.gasPrice);
+    }
+    
+    // Still fetch nonce if not provided and we have RPC access
+    if (transaction.nonce === undefined && (transaction.rpcUrl || transaction.chainId)) {
+      try {
+        const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
+        if (rpcUrl) {
+          const provider = new ethers.JsonRpcProvider(rpcUrl);
+          const senderAddress = await getEthereumAddress(keyId, region);
+          const nonce = await provider.getTransactionCount(senderAddress, 'pending');
+          tx.nonce = nonce;
+        }
+      } catch (error: any) {
+        console.warn(`Warning: Could not fetch nonce from network: ${error.message}`);
+        tx.nonce = 0; // Default to 0 if we can't fetch
+      }
+    } else if (transaction.nonce === undefined) {
+      tx.nonce = 0; // Default to 0 if no RPC access
     }
   }
   
