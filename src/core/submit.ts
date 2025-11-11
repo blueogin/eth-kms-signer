@@ -81,13 +81,8 @@ export async function submitTransaction(
       txHash: txResponse.hash,
     };
   } catch (error: any) {
-    if (error.reason) {
-      throw new Error(`Transaction failed: ${error.reason}`);
-    } else if (error.message) {
-      throw new Error(`Transaction failed: ${error.message}`);
-    } else {
-      throw new Error(`Transaction failed: ${error}`);
-    }
+    const errorMessage = error.reason || error.message || String(error);
+    throw new Error(`Transaction failed: ${errorMessage}`);
   }
 }
 

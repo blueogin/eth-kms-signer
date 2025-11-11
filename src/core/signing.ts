@@ -15,6 +15,37 @@ function getDefaultRpcUrl(chainId?: number): string | undefined {
 }
 
 /**
+ * Fetches nonce from network if not provided
+ */
+async function fetchNonceIfNeeded(
+  keyId: string,
+  transaction: EthereumTransaction,
+  tx: any,
+  region?: string
+): Promise<void> {
+  if (transaction.nonce !== undefined) {
+    tx.nonce = transaction.nonce;
+    return;
+  }
+
+  if (transaction.rpcUrl || transaction.chainId) {
+    try {
+      const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
+      if (rpcUrl) {
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const senderAddress = await getEthereumAddress(keyId, region);
+        tx.nonce = await provider.getTransactionCount(senderAddress, 'pending');
+        return;
+      }
+    } catch (error: any) {
+      console.warn(`Warning: Could not fetch nonce from network: ${error.message}`);
+    }
+  }
+  
+  tx.nonce = 0;
+}
+
+/**
  * Gets the public key from KMS in hex format
  */
 export async function getPublicKey(keyId: string, region?: string): Promise<string> {
@@ -148,119 +179,69 @@ export async function signTransaction(
   if (transaction.data) {
     tx.data = transaction.data;
   }
-  if (transaction.nonce !== undefined) {
-    tx.nonce = transaction.nonce;
-  }
   
-  // If gas values are not provided, estimate them from network
-  // Also fetch nonce if not provided and we have RPC access
-  if (!transaction.gasLimit || !transaction.gasPrice || transaction.nonce === undefined) {
-    if (transaction.rpcUrl || transaction.chainId) {
-      try {
-        const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
-        if (rpcUrl) {
-          const provider = new ethers.JsonRpcProvider(rpcUrl);
-          
-          // Get sender address for nonce lookup
-          if (transaction.nonce === undefined) {
-            const senderAddress = await getEthereumAddress(keyId, region);
-            const nonce = await provider.getTransactionCount(senderAddress, 'pending');
-            tx.nonce = nonce;
-          }
-          
-          // Estimate gas limit
-          if (!transaction.gasLimit) {
-            const gasEstimate = await provider.estimateGas({
-              to: transaction.to,
-              value: transaction.value ? ethers.parseEther(transaction.value) : undefined,
-              data: transaction.data,
-            });
-            tx.gasLimit = gasEstimate;
-          } else {
-            tx.gasLimit = BigInt(transaction.gasLimit);
-          }
-          
-          // Get fee data (supports both EIP-1559 and legacy)
-          const feeData = await provider.getFeeData();
-          
-          if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
-            // EIP-1559 transaction
-            tx.maxFeePerGas = feeData.maxFeePerGas;
-            tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
-          } else if (feeData.gasPrice) {
-            // Legacy transaction
-            tx.gasPrice = feeData.gasPrice;
-          } else {
-            // Fallback: use provided gasPrice or set a default
-            if (transaction.gasPrice) {
-              tx.gasPrice = BigInt(transaction.gasPrice);
-            } else {
-              // Default gas price (1 gwei)
-              tx.gasPrice = ethers.parseUnits('1', 'gwei');
-            }
-          }
-        }
-      } catch (error: any) {
-        console.warn(`Warning: Could not fetch gas data from network: ${error.message}`);
-        // Fallback to defaults
-        if (!transaction.gasLimit) {
-          tx.gasLimit = 21000n; // Default gas limit for simple transfer
-        }
-        if (!transaction.gasPrice) {
-          tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
-        }
-        // If nonce wasn't set and we couldn't fetch it, default to 0
-        if (transaction.nonce === undefined && tx.nonce === undefined) {
-          tx.nonce = 0;
-        }
-      }
-    } else {
-      // No RPC URL or chain ID, use defaults
-      if (!transaction.gasLimit) {
+  // Fetch nonce if not provided
+  await fetchNonceIfNeeded(keyId, transaction, tx, region);
+
+  // Handle gas limit
+  if (transaction.gasLimit) {
+    tx.gasLimit = BigInt(transaction.gasLimit);
+  } else if (transaction.rpcUrl || transaction.chainId) {
+    try {
+      const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
+      if (rpcUrl) {
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        tx.gasLimit = await provider.estimateGas({
+          to: transaction.to,
+          value: transaction.value ? ethers.parseEther(transaction.value) : undefined,
+          data: transaction.data,
+        });
+      } else {
         tx.gasLimit = 21000n; // Default gas limit for simple transfer
       }
-      if (!transaction.gasPrice) {
-        tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
-      }
-      // If nonce wasn't provided and we can't fetch it, default to 0
-      if (transaction.nonce === undefined) {
-        tx.nonce = 0;
-      }
+    } catch (error: any) {
+      console.warn(`Warning: Could not fetch gas data from network: ${error.message}`);
+      tx.gasLimit = 21000n; // Default gas limit for simple transfer
     }
   } else {
-    // Use provided values
-    if (transaction.gasLimit) {
-      tx.gasLimit = BigInt(transaction.gasLimit);
-    }
-    if (transaction.gasPrice) {
-      tx.gasPrice = BigInt(transaction.gasPrice);
-    }
-    
-    // Still fetch nonce if not provided and we have RPC access
-    if (transaction.nonce === undefined && (transaction.rpcUrl || transaction.chainId)) {
-      try {
-        const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
-        if (rpcUrl) {
-          const provider = new ethers.JsonRpcProvider(rpcUrl);
-          const senderAddress = await getEthereumAddress(keyId, region);
-          const nonce = await provider.getTransactionCount(senderAddress, 'pending');
-          tx.nonce = nonce;
-        }
-      } catch (error: any) {
-        console.warn(`Warning: Could not fetch nonce from network: ${error.message}`);
-        tx.nonce = 0; // Default to 0 if we can't fetch
-      }
-    } else if (transaction.nonce === undefined) {
-      tx.nonce = 0; // Default to 0 if no RPC access
-    }
+    tx.gasLimit = 21000n; // Default gas limit for simple transfer
   }
-  
-  // Handle EIP-1559 fees if provided
+
+  // Handle gas fees (EIP-1559 or legacy)
   if (transaction.maxFeePerGas) {
     tx.maxFeePerGas = BigInt(transaction.maxFeePerGas);
   }
   if (transaction.maxPriorityFeePerGas) {
     tx.maxPriorityFeePerGas = BigInt(transaction.maxPriorityFeePerGas);
+  }
+  if (transaction.gasPrice) {
+    tx.gasPrice = BigInt(transaction.gasPrice);
+  } else if (!transaction.maxFeePerGas && (transaction.rpcUrl || transaction.chainId)) {
+    try {
+      const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
+      if (rpcUrl) {
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const feeData = await provider.getFeeData();
+        
+        if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+          // EIP-1559 transaction
+          tx.maxFeePerGas = feeData.maxFeePerGas;
+          tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
+        } else if (feeData.gasPrice) {
+          // Legacy transaction
+          tx.gasPrice = feeData.gasPrice;
+        } else {
+          tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
+        }
+      } else {
+        tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
+      }
+    } catch (error: any) {
+      console.warn(`Warning: Could not fetch gas data from network: ${error.message}`);
+      tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
+    }
+  } else if (!transaction.maxFeePerGas) {
+    tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
   }
   
   // Serialize and hash transaction
