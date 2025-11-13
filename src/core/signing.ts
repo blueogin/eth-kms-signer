@@ -6,7 +6,9 @@
  */
 
 import { SignCommand, GetPublicKeyCommand } from '@aws-sdk/client-kms';
-import { ethers } from 'ethers';
+import Web3 from 'web3';
+import { Transaction, FeeMarketEIP1559Transaction } from '@ethereumjs/tx';
+import { Common } from '@ethereumjs/common';
 import { createKMSClient } from './kms-client';
 import { CHAIN_RPC_URLS } from './constants';
 
@@ -32,9 +34,9 @@ async function fetchNonceIfNeeded(
     try {
       const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
       if (rpcUrl) {
-        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const web3 = new Web3(rpcUrl);
         const senderAddress = await getEthereumAddress(keyId, region);
-        tx.nonce = await provider.getTransactionCount(senderAddress, 'pending');
+        tx.nonce = await web3.eth.getTransactionCount(senderAddress, 'pending');
         return;
       }
     } catch (error: any) {
@@ -136,10 +138,10 @@ export async function getEthereumAddress(keyId: string, region?: string): Promis
   const publicKeyBytes = publicKeyHex.slice(4); // Remove '0x04'
   
   // Hash the public key (64 bytes) with Keccak256
-  const hash = ethers.keccak256('0x' + publicKeyBytes);
+  const hash = Web3.utils.keccak256('0x' + publicKeyBytes);
   
   // Take the last 20 bytes (40 hex characters) as the address
-  const address = ethers.getAddress('0x' + hash.slice(-40));
+  const address = Web3.utils.toChecksumAddress('0x' + hash.slice(-40));
   
   return address;
 }
@@ -174,10 +176,11 @@ export async function signTransaction(
   };
   
   if (transaction.value) {
-    tx.value = ethers.parseEther(transaction.value);
+    tx.value = Web3.utils.toWei(transaction.value, 'ether');
   }
   if (transaction.data) {
-    tx.data = transaction.data;
+    // Ensure data is a hex string with 0x prefix
+    tx.data = transaction.data.startsWith('0x') ? transaction.data : '0x' + transaction.data;
   }
   
   // Fetch nonce if not provided
@@ -185,74 +188,130 @@ export async function signTransaction(
 
   // Handle gas limit
   if (transaction.gasLimit) {
-    tx.gasLimit = BigInt(transaction.gasLimit);
+    tx.gasLimit = transaction.gasLimit;
   } else if (transaction.rpcUrl || transaction.chainId) {
     try {
       const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
       if (rpcUrl) {
-        const provider = new ethers.JsonRpcProvider(rpcUrl);
-        tx.gasLimit = await provider.estimateGas({
+        const web3 = new Web3(rpcUrl);
+        const estimatedGas = await web3.eth.estimateGas({
           to: transaction.to,
-          value: transaction.value ? ethers.parseEther(transaction.value) : undefined,
+          value: transaction.value ? Web3.utils.toWei(transaction.value, 'ether') : undefined,
           data: transaction.data,
         });
+        tx.gasLimit = estimatedGas.toString();
       } else {
-        tx.gasLimit = 21000n; // Default gas limit for simple transfer
+        tx.gasLimit = '21000'; // Default gas limit for simple transfer
       }
     } catch (error: any) {
       console.warn(`Warning: Could not fetch gas data from network: ${error.message}`);
-      tx.gasLimit = 21000n; // Default gas limit for simple transfer
+      tx.gasLimit = '21000'; // Default gas limit for simple transfer
     }
   } else {
-    tx.gasLimit = 21000n; // Default gas limit for simple transfer
+    tx.gasLimit = '21000'; // Default gas limit for simple transfer
   }
 
+  // Determine if we should use EIP-1559 or legacy transaction
+  // Only use EIP-1559 if both maxFeePerGas and maxPriorityFeePerGas are explicitly provided
+  // Otherwise, use legacy transactions
+  const useEIP1559 = !!(transaction.maxFeePerGas && transaction.maxPriorityFeePerGas);
+  
   // Handle gas fees (EIP-1559 or legacy)
-  if (transaction.maxFeePerGas) {
-    tx.maxFeePerGas = BigInt(transaction.maxFeePerGas);
-  }
-  if (transaction.maxPriorityFeePerGas) {
-    tx.maxPriorityFeePerGas = BigInt(transaction.maxPriorityFeePerGas);
-  }
-  if (transaction.gasPrice) {
-    tx.gasPrice = BigInt(transaction.gasPrice);
-  } else if (!transaction.maxFeePerGas && (transaction.rpcUrl || transaction.chainId)) {
-    try {
-      const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
-      if (rpcUrl) {
-        const provider = new ethers.JsonRpcProvider(rpcUrl);
-        const feeData = await provider.getFeeData();
-        
-        if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
-          // EIP-1559 transaction
-          tx.maxFeePerGas = feeData.maxFeePerGas;
-          tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
-        } else if (feeData.gasPrice) {
-          // Legacy transaction
-          tx.gasPrice = feeData.gasPrice;
+  if (useEIP1559) {
+    // EIP-1559 transaction - both fields must be provided
+    tx.maxFeePerGas = transaction.maxFeePerGas!;
+    tx.maxPriorityFeePerGas = transaction.maxPriorityFeePerGas!;
+  } else {
+    // Legacy transaction - use gasPrice
+    if (transaction.gasPrice) {
+      tx.gasPrice = transaction.gasPrice;
+    } else if (transaction.rpcUrl || transaction.chainId) {
+      try {
+        const rpcUrl = transaction.rpcUrl || getDefaultRpcUrl(transaction.chainId);
+        if (rpcUrl) {
+          const web3 = new Web3(rpcUrl);
+          const gasPrice = await web3.eth.getGasPrice();
+          tx.gasPrice = gasPrice;
         } else {
-          tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
+          tx.gasPrice = Web3.utils.toWei('1', 'gwei'); // Default 1 gwei
         }
-      } else {
-        tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
+      } catch (error: any) {
+        console.warn(`Warning: Could not fetch gas data from network: ${error.message}`);
+        tx.gasPrice = Web3.utils.toWei('1', 'gwei'); // Default 1 gwei
       }
-    } catch (error: any) {
-      console.warn(`Warning: Could not fetch gas data from network: ${error.message}`);
-      tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
+    } else {
+      tx.gasPrice = Web3.utils.toWei('1', 'gwei'); // Default 1 gwei
     }
-  } else if (!transaction.maxFeePerGas) {
-    tx.gasPrice = ethers.parseUnits('1', 'gwei'); // Default 1 gwei
   }
   
-  // Serialize and hash transaction
-  const serializedTx = ethers.Transaction.from(tx).unsignedSerialized;
-  const txHash = ethers.keccak256(serializedTx);
-  const messageHash = ethers.getBytes(txHash);
+  // Get chain configuration
+  const chainId = tx.chainId || 1;
+  // Create Common instance with proper chain configuration
+  // For custom chains, we need to provide chain params
+  const common = Common.custom(
+    {
+      chainId: chainId,
+      networkId: chainId, // Use chainId as networkId for custom chains
+    },
+    {
+      baseChain: 'mainnet', // Use mainnet as base
+      hardfork: 'merge', // Use latest hardfork
+    }
+  );
+  
+  // Prepare common transaction fields (ensure consistent format)
+  const toAddress = tx.to ? (tx.to.startsWith('0x') ? tx.to : '0x' + tx.to) : undefined;
+  const txDataValue = tx.value ? Web3.utils.toHex(tx.value) : '0x0';
+  const txDataNonce = tx.nonce !== undefined ? Web3.utils.toHex(tx.nonce) : '0x0';
+  const txDataGasLimit = tx.gasLimit ? Web3.utils.toHex(tx.gasLimit) : '0x5208';
+  const txDataData = tx.data ? Buffer.from(tx.data.slice(2), 'hex') : Buffer.alloc(0);
+  
+  // Build transaction object for @ethereumjs/tx
+  let unsignedTx: Transaction | FeeMarketEIP1559Transaction;
+  
+  if (useEIP1559 && tx.maxFeePerGas && tx.maxPriorityFeePerGas) {
+    // EIP-1559 transaction
+    const txData = {
+      nonce: txDataNonce,
+      gasLimit: txDataGasLimit,
+      to: toAddress,
+      value: txDataValue,
+      data: txDataData,
+      maxFeePerGas: Web3.utils.toHex(tx.maxFeePerGas),
+      maxPriorityFeePerGas: Web3.utils.toHex(tx.maxPriorityFeePerGas),
+      chainId: chainId,
+    };
+    
+    unsignedTx = FeeMarketEIP1559Transaction.fromTxData(txData, { common });
+  } else {
+    // Legacy transaction
+    const txData = {
+      nonce: txDataNonce,
+      gasPrice: tx.gasPrice ? Web3.utils.toHex(tx.gasPrice) : '0x0',
+      gasLimit: txDataGasLimit,
+      to: toAddress,
+      value: txDataValue,
+      data: txDataData,
+      chainId: chainId,
+    };
+    
+    unsignedTx = Transaction.fromTxData(txData, { common });
+  }
+  
+  // Get the message hash to sign (this is the correct hash for the transaction)
+  // getMessageToSign(true) or getMessageToSign() returns the hash (32 bytes) that should be signed
+  // getMessageToSign(false) returns the serialized transaction (variable length)
+  const messageHash = unsignedTx.getMessageToSign(true);
+  
+  // Ensure we have exactly 32 bytes for KMS (ECDSA_SHA_256 requires 32-byte digest)
+  if (messageHash.length !== 32) {
+    throw new Error(`Invalid message hash length: expected 32 bytes, got ${messageHash.length}`);
+  }
   
   // Sign with KMS
   const signCommand = new SignCommand({
     KeyId: keyId,
-    Message: Buffer.from(messageHash),
+    Message: messageHash,
     MessageType: 'DIGEST',
     SigningAlgorithm: 'ECDSA_SHA_256',
   });
@@ -319,27 +378,89 @@ export async function signTransaction(
   const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
   const sBigInt = BigInt('0x' + sPadded.toString('hex'));
   
-  // If s > n/2, flip it (canonical form)
-  let sCanonical = sPadded;
-  if (sBigInt > SECP256K1_N / 2n) {
-    const sFlipped = SECP256K1_N - sBigInt;
-    sCanonical = Buffer.from(sFlipped.toString(16).padStart(64, '0'), 'hex');
+  // Ensure s is in canonical form (s <= n/2)
+  // @ethereumjs/tx requires canonical s, so we must flip it if needed
+  const sCanonical = sBigInt > SECP256K1_N / 2n
+    ? Buffer.from((SECP256K1_N - sBigInt).toString(16).padStart(64, '0'), 'hex')
+    : sPadded;
+  
+  // When we flip s, we need to adjust recovery IDs:
+  // - If s was NOT flipped: try recovery IDs 0, 1
+  // - If s WAS flipped: try recovery IDs 2, 3
+  const sWasFlipped = sBigInt > SECP256K1_N / 2n;
+  
+  // Create signature buffers
+  const rBuffer = rPadded;
+  const sBuffer = sCanonical;
+  
+  // Try recovery IDs to construct the signed transaction
+  // For EIP-1559: yParity can only be 0 or 1
+  // For legacy: v = chainId * 2 + 35 + recoveryId, where recoveryId can be 0, 1, 2, or 3
+  let lastError: Error | null = null;
+  
+  if (useEIP1559 && tx.maxFeePerGas && tx.maxPriorityFeePerGas) {
+    // EIP-1559: try yParity 0 and 1
+    for (let yParity = 0; yParity < 2; yParity++) {
+      try {
+        const txData = {
+          nonce: txDataNonce,
+          gasLimit: txDataGasLimit,
+          to: toAddress,
+          value: txDataValue,
+          data: txDataData,
+          maxFeePerGas: Web3.utils.toHex(tx.maxFeePerGas),
+          maxPriorityFeePerGas: Web3.utils.toHex(tx.maxPriorityFeePerGas),
+          chainId: chainId,
+          r: rBuffer,
+          s: sBuffer,
+          yParity: yParity as 0 | 1,
+        };
+        
+        const signedTx = FeeMarketEIP1559Transaction.fromTxData(txData, { common });
+        // Return the first valid transaction
+        return '0x' + signedTx.serialize().toString('hex');
+      } catch (error: any) {
+        lastError = error;
+        continue;
+      }
+    }
+  } else {
+    // Legacy: try recovery IDs based on whether s was flipped
+    // If s was flipped, try recovery IDs 2 and 3; otherwise try 0 and 1
+    const recoveryIdStart = sWasFlipped ? 2 : 0;
+    const recoveryIdEnd = sWasFlipped ? 4 : 2;
+    
+    for (let recoveryId = recoveryIdStart; recoveryId < recoveryIdEnd; recoveryId++) {
+      try {
+        const v = chainId * 2 + 35 + recoveryId;
+        const txData = {
+          nonce: txDataNonce,
+          gasPrice: tx.gasPrice ? Web3.utils.toHex(tx.gasPrice) : '0x0',
+          gasLimit: txDataGasLimit,
+          to: toAddress,
+          value: txDataValue,
+          data: txDataData,
+          chainId: chainId,
+          r: rBuffer,
+          s: sBuffer,
+          v: Web3.utils.toHex(v),
+        };
+        
+        const signedTx = Transaction.fromTxData(txData, { common });
+        // Return the first valid transaction
+        return '0x' + signedTx.serialize().toString('hex');
+      } catch (error: any) {
+        lastError = error;
+        continue;
+      }
+    }
   }
   
-  // Create signature object with r and s
-  const signature = {
-    r: '0x' + rPadded.toString('hex'),
-    s: '0x' + sCanonical.toString('hex'),
-    v: 0, // Will be calculated by ethers
-  };
-  
-  // Create signed transaction
-  const signedTx = ethers.Transaction.from({
-    ...tx,
-    signature: signature,
-  });
-  
-  return signedTx.serialized;
+  // If we get here, none of the recovery IDs worked
+  const errorMsg = lastError 
+    ? `Could not construct signed transaction: ${lastError.message}` 
+    : 'Could not construct signed transaction (tried all recovery IDs)';
+  throw new Error(errorMsg);
 }
 
 /**
@@ -353,13 +474,17 @@ export async function signMessage(
   const kmsClient = createKMSClient(region);
   
   // Create Ethereum message hash (EIP-191)
-  const messageHash = ethers.hashMessage(message);
-  const messageBytes = ethers.getBytes(messageHash);
+  // Format: \x19Ethereum Signed Message:\n<length in bytes><message>
+  const messageBuffer = Buffer.from(message, 'utf8');
+  const prefix = Buffer.from('\x19Ethereum Signed Message:\n' + messageBuffer.length.toString(), 'utf8');
+  const messageToHash = Buffer.concat([prefix, messageBuffer]);
+  const messageHash = Web3.utils.keccak256('0x' + messageToHash.toString('hex'));
+  const messageBytes = Buffer.from(messageHash.slice(2), 'hex');
   
   // Sign with KMS
   const signCommand = new SignCommand({
     KeyId: keyId,
-    Message: Buffer.from(messageBytes),
+    Message: messageBytes,
     MessageType: 'DIGEST',
     SigningAlgorithm: 'ECDSA_SHA_256',
   });

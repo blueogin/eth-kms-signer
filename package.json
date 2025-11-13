@@ -26,7 +26,9 @@
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-kms": "^3.490.0",
-    "ethers": "^6.9.0",
+    "web3": "^1.10.0",
+    "@ethereumjs/tx": "^4.1.1",
+    "@ethereumjs/common": "^3.1.0",
     "dotenv": "^16.3.1"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@
  * Submit signed Ethereum transactions to blockchain
  */
 
-import { ethers } from 'ethers';
+import Web3 from 'web3';
 import { CHAIN_RPC_URLS, EXPLORER_URLS } from './constants';
 
 export interface SubmitOptions {
@@ -41,45 +41,47 @@ export async function submitTransaction(
     );
   }
   
-  // Create provider
-  const provider = new ethers.JsonRpcProvider(providerUrl);
+  // Create web3 instance
+  const web3 = new Web3(providerUrl);
   
   try {
     // Send transaction
-    const txResponse = await provider.broadcastTransaction(signedTransaction);
-    
-    console.log(`\n✓ Transaction submitted successfully!`);
-    console.log(`  Transaction Hash: ${txResponse.hash}`);
-    console.log(`  Explorer: ${getExplorerUrl(chainId, txResponse.hash)}`);
-    
-    if (waitForConfirmation) {
-      console.log(`\n⏳ Waiting for confirmation...`);
-      const receipt = await txResponse.wait();
-      
-      if (!receipt) {
-        throw new Error('Transaction receipt is null');
-      }
-      
-      // Handle confirmations (can be a number or a function)
-      let confirmations: number = 0;
-      const conf = receipt.confirmations;
-      if (typeof conf === 'function') {
-        confirmations = await conf();
-      } else if (typeof conf === 'number') {
-        confirmations = conf;
-      }
-      
-      return {
-        txHash: receipt.hash,
-        blockNumber: receipt.blockNumber,
-        confirmations: confirmations,
-        status: receipt.status ?? undefined,
-      };
-    }
-    
-    return {
-      txHash: txResponse.hash,
-    };
+    // web3.eth.sendSignedTransaction returns a promise that resolves with the transaction hash
+    // We can use the promise API or event handlers
+    return new Promise<SubmitResult>((resolve, reject) => {
+      web3.eth.sendSignedTransaction(signedTransaction)
+        .on('transactionHash', (hash: string) => {
+          console.log(`\n✓ Transaction submitted successfully!`);
+          console.log(`  Transaction Hash: ${hash}`);
+          console.log(`  Explorer: ${getExplorerUrl(chainId, hash)}`);
+          
+          if (!waitForConfirmation) {
+            resolve({
+              txHash: hash,
+            });
+          }
+        })
+        .on('receipt', (receipt: any) => {
+          if (waitForConfirmation) {
+            // Get current block number to calculate confirmations
+            web3.eth.getBlockNumber()
+              .then((currentBlock: number) => {
+                const confirmations = receipt.blockNumber ? currentBlock - receipt.blockNumber + 1 : 0;
+                resolve({
+                  txHash: receipt.transactionHash,
+                  blockNumber: receipt.blockNumber,
+                  confirmations: confirmations,
+                  status: receipt.status !== undefined ? receipt.status : undefined,
+                });
+              })
+              .catch(reject);
+          }
+        })
+        .on('error', (error: any) => {
+          const errorMessage = error.reason || error.message || String(error);
+          reject(new Error(`Transaction failed: ${errorMessage}`));
+        });
+    });
   } catch (error: any) {
     const errorMessage = error.reason || error.message || String(error);
     throw new Error(`Transaction failed: ${errorMessage}`);
