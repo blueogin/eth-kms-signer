@@ -245,7 +245,7 @@ export async function signTransaction(
   }
   
   // Get chain configuration
-  const chainId = tx.chainId || 1;
+  const chainId = tx.chainId;
   // Create Common instance with proper chain configuration
   // For custom chains, we need to provide chain params
   const common = Common.custom(
@@ -254,7 +254,6 @@ export async function signTransaction(
       networkId: chainId, // Use chainId as networkId for custom chains
     },
     {
-      baseChain: 'mainnet', // Use mainnet as base
       hardfork: 'merge', // Use latest hardfork
     }
   );
