@@ -10,6 +10,7 @@
     "import": "ts-node src/cli/import.ts",
     "sign": "ts-node src/cli/sign.ts",
     "submit": "ts-node src/cli/submit.ts",
+    "list": "ts-node src/cli/list.ts",
     "dev": "ts-node",
     "clean": "rm -rf dist"
   },
