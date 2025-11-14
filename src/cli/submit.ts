@@ -4,7 +4,7 @@
  * CLI: Submit signed Ethereum transactions to blockchain
  */
 
-import { submitTransaction } from '../core/submit';
+import { submitTransaction, getSignerAddress } from '../core/submit';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -31,6 +31,12 @@ async function main() {
   }
   
   console.log('=== Submit Ethereum Transaction ===\n');
+  
+  // Extract and display signer address before submitting
+  const signerAddress = getSignerAddress(signedTx, chainId);
+  if (signerAddress) {
+    console.log(`Signer Address: ${signerAddress}`);
+  }
   
   if (rpcUrl) {
     console.log(`RPC URL: ${rpcUrl}`);

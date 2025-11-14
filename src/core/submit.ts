@@ -3,6 +3,8 @@
  */
 
 import Web3 from 'web3';
+import { Transaction, FeeMarketEIP1559Transaction } from '@ethereumjs/tx';
+import { Common } from '@ethereumjs/common';
 import { CHAIN_RPC_URLS, EXPLORER_URLS } from './constants';
 
 export interface SubmitOptions {
@@ -85,6 +87,54 @@ export async function submitTransaction(
   } catch (error: any) {
     const errorMessage = error.reason || error.message || String(error);
     throw new Error(`Transaction failed: ${errorMessage}`);
+  }
+}
+
+/**
+ * Decodes a signed transaction to extract the signer address
+ */
+export function getSignerAddress(signedTransaction: string, chainId?: number): string | undefined {
+  try {
+    const txBuffer = Buffer.from(signedTransaction.slice(2), 'hex');
+    
+    // Check transaction type (EIP-2718)
+    const txType = txBuffer[0];
+    
+    // Try to decode based on transaction type
+    // Typed transactions (EIP-2718) have type byte 0x01-0x7f
+    if (txType >= 0x01 && txType <= 0x7f) {
+      // Typed transaction (EIP-2718) - try EIP-1559 first
+      try {
+        const common = chainId 
+          ? Common.custom({ chainId, networkId: chainId }, { hardfork: 'merge' })
+          : undefined;
+        const tx = common
+          ? FeeMarketEIP1559Transaction.fromSerializedTx(txBuffer, { common })
+          : FeeMarketEIP1559Transaction.fromSerializedTx(txBuffer);
+        return tx.getSenderAddress().toString();
+      } catch (e) {
+        // If EIP-1559 fails, try legacy (shouldn't happen, but be safe)
+        const common = chainId 
+          ? Common.custom({ chainId, networkId: chainId }, { hardfork: 'merge' })
+          : undefined;
+        const tx = common
+          ? Transaction.fromSerializedTx(txBuffer, { common })
+          : Transaction.fromSerializedTx(txBuffer);
+        return tx.getSenderAddress().toString();
+      }
+    } else {
+      // Legacy transaction
+      const common = chainId 
+        ? Common.custom({ chainId, networkId: chainId }, { hardfork: 'merge' })
+        : undefined;
+      const tx = common
+        ? Transaction.fromSerializedTx(txBuffer, { common })
+        : Transaction.fromSerializedTx(txBuffer);
+      return tx.getSenderAddress().toString();
+    }
+  } catch (error) {
+    // If decoding fails, return undefined
+    return undefined;
   }
 }
 
