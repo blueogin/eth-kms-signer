@@ -199,7 +199,7 @@ export async function signTransaction(
           value: transaction.value ? Web3.utils.toWei(transaction.value, 'ether') : undefined,
           data: transaction.data,
         });
-        tx.gasLimit = estimatedGas.toString();
+        tx.gasLimit = (estimatedGas * 2).toFixed(0).toString();
       } else {
         tx.gasLimit = '21000'; // Default gas limit for simple transfer
       }
@@ -383,22 +383,21 @@ export async function signTransaction(
     ? Buffer.from((SECP256K1_N - sBigInt).toString(16).padStart(64, '0'), 'hex')
     : sPadded;
   
-  // When we flip s, we need to adjust recovery IDs:
-  // - If s was NOT flipped: try recovery IDs 0, 1
-  // - If s WAS flipped: try recovery IDs 2, 3
-  const sWasFlipped = sBigInt > SECP256K1_N / 2n;
-  
   // Create signature buffers
   const rBuffer = rPadded;
   const sBuffer = sCanonical;
   
-  // Try recovery IDs to construct the signed transaction
+  // Get the expected Ethereum address from KMS to verify the correct recovery ID
+  const expectedAddress = await getEthereumAddress(keyId, region);
+  const expectedAddressLower = expectedAddress.toLowerCase();
+  
+  // Find the correct recovery ID/yParity by verifying the recovered address
   // For EIP-1559: yParity can only be 0 or 1
   // For legacy: v = chainId * 2 + 35 + recoveryId, where recoveryId can be 0, 1, 2, or 3
   let lastError: Error | null = null;
   
   if (useEIP1559 && tx.maxFeePerGas && tx.maxPriorityFeePerGas) {
-    // EIP-1559: try yParity 0 and 1
+    // EIP-1559: try yParity 0 and 1, verify address matches
     for (let yParity = 0; yParity < 2; yParity++) {
       try {
         const txData = {
@@ -416,38 +415,42 @@ export async function signTransaction(
         };
         
         const signedTx = FeeMarketEIP1559Transaction.fromTxData(txData, { common });
-        // Return the first valid transaction
-        return '0x' + signedTx.serialize().toString('hex');
+        const recoveredAddress = signedTx.getSenderAddress().toString().toLowerCase();
+        
+        // Verify the recovered address matches the expected address
+        if (recoveredAddress === expectedAddressLower) {
+          return '0x' + signedTx.serialize().toString('hex');
+        }
       } catch (error: any) {
         lastError = error;
         continue;
       }
     }
   } else {
-    // Legacy: try recovery IDs based on whether s was flipped
-    // If s was flipped, try recovery IDs 2 and 3; otherwise try 0 and 1
-    const recoveryIdStart = sWasFlipped ? 2 : 0;
-    const recoveryIdEnd = sWasFlipped ? 4 : 2;
-    
-    for (let recoveryId = recoveryIdStart; recoveryId < recoveryIdEnd; recoveryId++) {
+    // Legacy: try all recovery IDs (0, 1, 2, 3), verify address matches
+    for (let recoveryId = 0; recoveryId < 4; recoveryId++) {
       try {
+        // Calculate v value: v = chainId * 2 + 35 + recoveryId (EIP-155)
         const v = chainId * 2 + 35 + recoveryId;
-        const txData = {
+        const txData: any = {
           nonce: txDataNonce,
           gasPrice: tx.gasPrice ? Web3.utils.toHex(tx.gasPrice) : '0x0',
           gasLimit: txDataGasLimit,
           to: toAddress,
           value: txDataValue,
           data: txDataData,
-          chainId: chainId,
           r: rBuffer,
           s: sBuffer,
           v: Web3.utils.toHex(v),
         };
         
         const signedTx = Transaction.fromTxData(txData, { common });
-        // Return the first valid transaction
-        return '0x' + signedTx.serialize().toString('hex');
+        const recoveredAddress = signedTx.getSenderAddress().toString().toLowerCase();
+        
+        // Verify the recovered address matches the expected address
+        if (recoveredAddress === expectedAddressLower) {
+          return '0x' + signedTx.serialize().toString('hex');
+        }
       } catch (error: any) {
         lastError = error;
         continue;
@@ -455,10 +458,10 @@ export async function signTransaction(
     }
   }
   
-  // If we get here, none of the recovery IDs worked
+  // If we get here, none of the recovery IDs produced a matching address
   const errorMsg = lastError 
-    ? `Could not construct signed transaction: ${lastError.message}` 
-    : 'Could not construct signed transaction (tried all recovery IDs)';
+    ? `Could not construct signed transaction with matching address: ${lastError.message}` 
+    : `Could not construct signed transaction: no recovery ID produced address ${expectedAddress}`;
   throw new Error(errorMsg);
 }
 
