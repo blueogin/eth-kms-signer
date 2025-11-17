@@ -151,7 +151,10 @@ npm run sign -- alias/my-ethereum-key address
 # Get public key
 npm run sign -- alias/my-ethereum-key publickey
 
-# Submit a signed transaction (two-step process)
+# Sign and submit in one command (recommended)
+npm run sign -- alias/my-ethereum-key transfer 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1 --submit --wait
+
+# Alternative: Submit a signed transaction separately (two-step process)
 # Step 1: Sign the transaction
 npm run sign -- alias/my-ethereum-key transfer 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1
 

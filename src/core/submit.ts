@@ -47,43 +47,48 @@ export async function submitTransaction(
   const web3 = new Web3(providerUrl);
   
   try {
-    // Send transaction
-    // web3.eth.sendSignedTransaction returns a promise that resolves with the transaction hash
-    // We can use the promise API or event handlers
-    return new Promise<SubmitResult>((resolve, reject) => {
-      web3.eth.sendSignedTransaction(signedTransaction)
-        .on('transactionHash', (hash: string) => {
-          console.log(`\n✓ Transaction submitted successfully!`);
-          console.log(`  Transaction Hash: ${hash}`);
-          console.log(`  Explorer: ${getExplorerUrl(chainId, hash)}`);
-          
-          if (!waitForConfirmation) {
-            resolve({
-              txHash: hash,
-            });
-          }
-        })
-        .on('receipt', (receipt: any) => {
-          if (waitForConfirmation) {
-            // Get current block number to calculate confirmations
-            web3.eth.getBlockNumber()
-              .then((currentBlock: number) => {
-                const confirmations = receipt.blockNumber ? currentBlock - receipt.blockNumber + 1 : 0;
-                resolve({
-                  txHash: receipt.transactionHash,
-                  blockNumber: receipt.blockNumber,
-                  confirmations: confirmations,
-                  status: receipt.status !== undefined ? receipt.status : undefined,
-                });
-              })
-              .catch(reject);
-          }
-        })
-        .on('error', (error: any) => {
-          const errorMessage = error.reason || error.message || String(error);
-          reject(new Error(`Transaction failed: ${errorMessage}`));
-        });
+    // Send transaction and get the promise
+    const sendTx = web3.eth.sendSignedTransaction(signedTransaction);
+    
+    // Set up event handlers for immediate feedback
+    sendTx.on('transactionHash', (hash: string) => {
+      console.log(`\n✓ Transaction submitted successfully!`);
+      console.log(`  Transaction Hash: ${hash}`);
+      console.log(`  Explorer: ${getExplorerUrl(chainId, hash)}`);
     });
+    
+    if (waitForConfirmation) {
+      // Wait for the transaction receipt (included in a block)
+      console.log('⏳ Waiting for transaction confirmation...');
+      const receipt = await sendTx;
+      
+      // Get current block number to calculate confirmations
+      const currentBlock = await web3.eth.getBlockNumber();
+      const confirmations = receipt.blockNumber ? currentBlock - receipt.blockNumber + 1 : 0;
+      
+      // receipt.status is a number: 1 for success, 0 for failure
+      const status = typeof receipt.status === 'boolean' 
+        ? (receipt.status ? 1 : 0)
+        : (receipt.status !== undefined ? Number(receipt.status) : undefined);
+      
+      return {
+        txHash: receipt.transactionHash,
+        blockNumber: receipt.blockNumber,
+        confirmations: confirmations,
+        status: status,
+      };
+    } else {
+      // Just wait for transaction hash (submission to mempool)
+      // Use a promise that resolves when transactionHash event fires
+      const txHash = await new Promise<string>((resolve, reject) => {
+        sendTx.on('transactionHash', resolve);
+        sendTx.on('error', reject);
+      });
+      
+      return {
+        txHash: txHash,
+      };
+    }
   } catch (error: any) {
     const errorMessage = error.reason || error.message || String(error);
     throw new Error(`Transaction failed: ${errorMessage}`);

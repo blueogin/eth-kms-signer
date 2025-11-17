@@ -277,10 +277,48 @@ function parseArguments(): { command: string; options: TransactionOptions; autoD
     autoDetected = !!(detectedOptions.value || detectedOptions.chainId);
   } else {
     // Legacy: treat as simple transfer for backward compatibility
-    // sign <KEY_ID> <TO> [VALUE] [CHAIN_ID]
+    // sign <KEY_ID> <TO> [VALUE] [CHAIN_ID] [OPTIONS]
     options.to = command;
     options.value = args[2] || '0';
     options.chainId = args[3] ? parseInt(args[3]) : undefined;
+    
+    // Parse options starting from index 4 (after KEY_ID, TO, VALUE, CHAIN_ID)
+    let i = 4;
+    while (i < args.length) {
+      const arg = args[i];
+      if (arg === '--chain-id' || arg === '-c') {
+        options.chainId = parseInt(args[++i]);
+      } else if (arg === '--rpc-url' || arg === '-r') {
+        options.rpcUrl = args[++i];
+      } else if (arg === '--value' || arg === '-v') {
+        options.value = args[++i];
+      } else if (arg === '--nonce' || arg === '-n') {
+        options.nonce = parseInt(args[++i]);
+      } else if (arg === '--gas-limit' || arg === '-g') {
+        options.gasLimit = args[++i];
+      } else if (arg === '--gas-price') {
+        options.gasPrice = args[++i];
+      } else if (arg === '--max-fee-per-gas') {
+        options.maxFeePerGas = args[++i];
+      } else if (arg === '--max-priority-fee-per-gas') {
+        options.maxPriorityFeePerGas = args[++i];
+      } else if (arg === '--submit' || arg === '-s') {
+        options.submit = true;
+      } else if (arg === '--wait' || arg === '-w') {
+        options.waitForConfirmation = true;
+      } else {
+        // If it's a number and we haven't set chainId yet, treat it as chainId
+        if (!isNaN(Number(arg)) && options.chainId === undefined) {
+          options.chainId = parseInt(arg);
+        } else {
+          console.error(`Error: Unknown option: ${arg}`);
+          printUsage();
+          process.exit(1);
+        }
+      }
+      i++;
+    }
+    
     return { command: 'transfer', options, autoDetected };
   }
   
@@ -449,9 +487,6 @@ async function main() {
         console.log(`\n✅ Transaction submitted!`);
         console.log(`  Transaction Hash: ${result.txHash}`);
       }
-    } else {
-      console.log('💡 Tip: Use --submit to submit the transaction, or use:');
-      console.log(`   npm run submit ${signedTx} ${options.rpcUrl || ''} ${options.chainId || ''}`);
     }
   } catch (error: any) {
     console.error('\n❌ Error:', error.message || error);
