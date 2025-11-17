@@ -25,22 +25,31 @@ npm run setup
 # Option 2: Import an existing Ethereum private key into KMS
 npm run import <PRIVATE_KEY_HEX> [ALIAS_NAME]
 
-# Sign a transaction
-npm run sign alias/ethereum-signing-key transaction 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1
+# Sign a native ETH transfer
+npm run sign -- alias/ethereum-signing-key transfer 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1
+
+# Sign a contract call
+npm run sign -- alias/ethereum-signing-key call 0xToken... "transfer(address,uint256)" 0xRecipient... 1000000000000000000
 ```
 
 ## Project Structure
 
 ```
-KMS_Integration/
+eth-kms-signer/
 ├── src/
 │   ├── core/              # Core library code
 │   │   ├── kms-client.ts  # KMS client configuration
-│   │   ├── setup.ts       # Create KMS keys
-│   │   └── signing.ts     # Sign transactions
+│   │   ├── setup.ts       # Create and import KMS keys
+│   │   ├── signing.ts     # Sign transactions and messages
+│   │   ├── submit.ts      # Submit transactions to blockchain
+│   │   ├── list.ts        # List KMS keys
+│   │   └── constants.ts   # Chain RPC URLs and explorer URLs
 │   ├── cli/               # CLI commands
-│   │   ├── setup.ts       # Setup command
-│   │   └── sign.ts        # Sign command
+│   │   ├── setup.ts       # Setup command (create KMS key)
+│   │   ├── import.ts      # Import existing private key
+│   │   ├── sign.ts        # Unified sign command (transfers, calls, messages)
+│   │   ├── submit.ts      # Submit signed transactions
+│   │   └── list.ts        # List KMS keys
 │   └── index.ts           # Main export
 ├── package.json
 ├── tsconfig.json
@@ -86,20 +95,26 @@ npm run setup [alias-name]
 # Import existing Ethereum private key into KMS
 npm run import <PRIVATE_KEY_HEX> [ALIAS_NAME]
 
-# Sign transaction
-npm run sign <KEY_ID> transaction <TO_ADDRESS> [VALUE] [CHAIN_ID]
+# Sign native ETH transfer
+npm run sign -- <KEY_ID> transfer <TO_ADDRESS> [VALUE] [CHAIN_ID] [OPTIONS]
+
+# Sign contract call
+npm run sign -- <KEY_ID> call <CONTRACT_ADDRESS> "<FUNCTION_SIGNATURE>" [PARAMS...] [OPTIONS]
 
 # Sign message
-npm run sign <KEY_ID> message "Hello, Ethereum!"
+npm run sign -- <KEY_ID> message "Hello, Ethereum!"
 
 # Get Ethereum address from KMS key
-npm run sign <KEY_ID> address
+npm run sign -- <KEY_ID> address
 
 # Get public key from KMS key
-npm run sign <KEY_ID> publickey
+npm run sign -- <KEY_ID> publickey
 
 # Submit signed transaction to blockchain
 npm run submit <SIGNED_TX> [RPC_URL] [CHAIN_ID] [--wait]
+
+# List all KMS keys
+npm run list
 ```
 
 **Examples:**
@@ -112,21 +127,33 @@ npm run import 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcde
 # Or without 0x prefix:
 npm run import 1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef my-imported-key
 
-# Sign a transaction
-npm run sign alias/my-ethereum-key transaction 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1
+# Sign a native ETH transfer
+npm run sign -- alias/my-ethereum-key transfer 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1
+
+# Sign and submit a transfer in one step
+npm run sign -- alias/my-ethereum-key transfer 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1 --submit --wait
+
+# Sign a contract call (ERC20 transfer)
+npm run sign -- alias/my-ethereum-key call 0xToken... "transfer(address,uint256)" 0xRecipient... 1000000000000000000
+
+# Sign a contract call with ETH value
+npm run sign -- alias/my-ethereum-key call 0xContract... "deposit()" --value 0.1 --chain-id 1
+
+# Sign and submit a contract call
+npm run sign -- alias/my-ethereum-key call 0xContract... "approve(address,uint256)" 0xSpender... 1000 --submit --wait
 
 # Sign a message
-npm run sign alias/my-ethereum-key message "Hello, Ethereum!"
+npm run sign -- alias/my-ethereum-key message "Hello, Ethereum!"
 
 # Get address
-npm run sign alias/my-ethereum-key address
+npm run sign -- alias/my-ethereum-key address
 
 # Get public key
-npm run sign alias/my-ethereum-key publickey
+npm run sign -- alias/my-ethereum-key publickey
 
-# Sign and submit a transaction (two-step process)
+# Submit a signed transaction (two-step process)
 # Step 1: Sign the transaction
-npm run sign alias/my-ethereum-key transaction 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1
+npm run sign -- alias/my-ethereum-key transfer 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb 0.001 1
 
 # Step 2: Submit the signed transaction
 npm run submit 0x02f869... https://eth.llamarpc.com 1 --wait
@@ -134,6 +161,18 @@ npm run submit 0x02f869... https://eth.llamarpc.com 1 --wait
 # Or use chain ID to auto-select RPC (Base Sepolia example)
 npm run submit 0x02f869... 84532 --wait
 ```
+
+**Command Options:**
+- `--chain-id, -c <ID>` - Chain ID (default: 84532 or from env)
+- `--rpc-url, -r <URL>` - RPC URL for gas estimation
+- `--value, -v <AMOUNT>` - ETH value to send (in ETH, e.g., 0.1)
+- `--nonce, -n <NONCE>` - Transaction nonce (auto-fetched if not provided)
+- `--gas-limit, -g <LIMIT>` - Gas limit (auto-estimated if not provided)
+- `--gas-price <PRICE>` - Gas price in wei (legacy transactions)
+- `--max-fee-per-gas <FEE>` - Max fee per gas (EIP-1559)
+- `--max-priority-fee-per-gas` - Max priority fee per gas (EIP-1559)
+- `--submit, -s` - Submit transaction after signing
+- `--wait, -w` - Wait for transaction confirmation (requires --submit)
 
 ## Environment Variables
 
@@ -146,6 +185,9 @@ KMS_KEY_ID=alias/ethereum-signing-key
 
 # Optional: Default RPC URL for transaction submission
 RPC_URL=https://eth.llamarpc.com
+
+# Optional: Default chain ID
+CHAIN_ID=1
 ```
 
 **Getting your AWS Account ID:**
