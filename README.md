@@ -32,30 +32,6 @@ npm run sign -- alias/ethereum-signing-key transfer 0x742d35Cc6634C0532925a3b844
 npm run sign -- alias/ethereum-signing-key call 0xToken... "transfer(address,uint256)" 0xRecipient... 1000000000000000000
 ```
 
-## Project Structure
-
-```
-eth-kms-signer/
-├── src/
-│   ├── core/              # Core library code
-│   │   ├── kms-client.ts  # KMS client configuration
-│   │   ├── setup.ts       # Create and import KMS keys
-│   │   ├── signing.ts     # Sign transactions and messages
-│   │   ├── submit.ts      # Submit transactions to blockchain
-│   │   ├── list.ts        # List KMS keys
-│   │   └── constants.ts   # Chain RPC URLs and explorer URLs
-│   ├── cli/               # CLI commands
-│   │   ├── setup.ts       # Setup command (create KMS key)
-│   │   ├── import.ts      # Import existing private key
-│   │   ├── sign.ts        # Unified sign command (transfers, calls, messages)
-│   │   ├── submit.ts      # Submit signed transactions
-│   │   └── list.ts        # List KMS keys
-│   └── index.ts           # Main export
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
 ## Usage
 
 ### As a Library
